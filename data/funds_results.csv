@@ -1,0 +1,13 @@
+,Ticker,Model,Test_score,Parameter
+0,SPY,random_forest,0.49899799599198397,"[100, 10, 5, 2]"
+1,SPY,svm,0.5290581162324649,"[10, 'poly', 'scale', 3]"
+2,IYH,random_forest,0.5150300601202404,"[100, 20, 2, 2]"
+3,IYH,svm,0.5450901803607214,"[0.1, 'poly', 'scale', 3]"
+4,IYE,random_forest,0.4969939879759519,"[20, 10, 2, 4]"
+5,IYE,svm,0.5110220440881763,"[1, 'linear', 'scale']"
+6,IDU,random_forest,0.48897795591182364,"[200, 20, 10, 2]"
+7,IDU,svm,0.5370741482965932,"[1, 'rbf', 'auto']"
+8,IYT,random_forest,0.5591182364729459,"[20, 10, 5, 2]"
+9,IYT,svm,0.48897795591182364,"[10, 'rbf', 'scale']"
+10,ITB,random_forest,0.48697394789579157,"[20, None, 10, 4]"
+11,ITB,svm,0.5370741482965932,"[10, 'linear', 'scale']"
