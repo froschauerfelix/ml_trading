@@ -20,3 +20,6 @@ neural_network = False
 
 # don't change anything here
 models = [random_forest, support_vector_machine, neural_network]
+
+# select features
+features = ["DP_1", "DP_2", "DV_1", "DV_2", "MA_5", "MA_10", "MA_30", "MPP_30", "MPP_50"]

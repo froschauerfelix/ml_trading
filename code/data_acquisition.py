@@ -27,7 +27,7 @@ for ticker in tickers:
 df = pd.concat(dfs)
 
 # save the data
-df.to_csv(full_path + "data/funds_return.csv", encoding="utf-8", index=True)
+df.to_csv(full_path + "data/funds_data_raw.csv", encoding="utf-8", index=True)
 
 
 print('[green]The data generation process is finished. You can now continue with the preprocessing file.[/]')

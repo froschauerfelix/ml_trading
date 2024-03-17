@@ -11,7 +11,7 @@ from sklearn.preprocessing import MinMaxScaler
 
 
 # Import the generated data
-funds_return = pd.read_csv(full_path + "data/funds_return.csv", index_col=0)
+funds_return = pd.read_csv(full_path + "data/funds_data_raw.csv", index_col=0)
 
 
 tickers = list(funds_return.Ticker.unique())
@@ -82,8 +82,8 @@ for ticker in tickers:
     ticker_test = ticker_test.dropna()
 
     # Kick out irrelevant columns
-    ticker_train = ticker_train.drop(["Open", "High", "Low", "Close", "Adj Close", "Volume", "Target"], axis=1)
-    ticker_test = ticker_test.drop(["Open", "High", "Low", "Close", "Adj Close", "Volume", "Target"], axis=1)
+    ticker_train = ticker_train.drop(["High", "Low", "Adj Close", "Volume"], axis=1)
+    ticker_test = ticker_test.drop(["High", "Low", "Adj Close", "Volume"], axis=1)
 
     # Combine again for faster data handling
     ticker_train["Type"] = "train"
@@ -95,7 +95,7 @@ for ticker in tickers:
 
 # combine all ticker dataframes together
 processed_data = pd.concat(ticker_dfs)
-processed_data.to_csv(full_path + "data/funds_processed.csv", encoding="utf-8", index=True)
+processed_data.to_csv(full_path + "data/funds_data_processed.csv", encoding="utf-8", index=True)
 
 
 
