@@ -2,7 +2,8 @@
 import os, sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-from ml_trading.code.config import full_path, features
+from ml_trading.code.config import full_path, features, number_epochs, with_costs
+from ml_trading.code.utils import MLP
 
 import pandas as pd
 pd.set_option('display.max_rows', None)
@@ -10,295 +11,438 @@ import numpy as np
 
 from sklearn.ensemble import RandomForestClassifier
 from sklearn import svm
+from sklearn.metrics import precision_score, accuracy_score
+from torch.nn.functional import softmax
 
+import random
 from ast import literal_eval
 from matplotlib import pyplot as plt
 from rich import print
 
+import torch
+from torch import nn
 
 # Import the best parameters
-df_hyperparameter = pd.read_csv(full_path + "data/funds_hyperparameter.csv", index_col=0)
+df_hyperparameter = pd.read_csv(full_path + "data/funds_hyperparameter_all.csv", index_col=0)
 funds_processed = pd.read_csv(full_path + "data/funds_data_processed.csv", index_col=0)
 
-# Train the model once with all all training data
-which_model = "svm"
-print(df_hyperparameter)
+# All models that are selected in the config file
+models = df_hyperparameter.Model.unique()
+#models = ["random_forest"]
+
+# Select all tickers for the loop
+tickers = list(df_hyperparameter.Ticker.unique())
+#tickers = ["IDU"]
+
+# number seeds
+num_seeds = 10
+
+# Define results dataframe
+df_results = df_hyperparameter[["Ticker", "Model"]].copy()
+df_results["Test_Accuracy"] = np.nan
+df_results["Test_Precision"] = np.nan
+df_results["Imbalance_Predictions"] = np.nan
+df_results["Imbalance_True"] = np.nan
+df_results["Return_Model"] = np.nan
+df_results["Return_Benchmark"] = np.nan
+
+# dataframe for predictions per seed and per model/ticker
+dfs_predictions = []
+
+# dataframe to store evaluations per seed and per model/ticker
+df_accuracy = df_hyperparameter[["Ticker", "Model"]].copy()
+df_precision = df_hyperparameter[["Ticker", "Model"]].copy()
+df_imbalance = df_hyperparameter[["Ticker", "Model"]].copy()
+list_imbalance_true = []
+
+# loop over all seeds
+    # loop over all tickers
+        # loop over all models
+for seed in range(1, num_seeds+1):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    print(f"Current seed: {seed}")
+
+    # name of column
+    seed_col_a = f"accuracy_{seed}"
+    seed_col_p = f"precision_{seed}"
+    seed_col_i = f"prediction_imbalance_{seed}"
+    seed_num = f"seed{seed}"
 
 
-#tickers = list(funds_processed.Ticker.unique())
-tickers = ["IYE"]
+    # Get the final test score + Daily Predictions
+    for ticker in tickers:
+        print(f"Ticker: {ticker}")
 
-ticker_dfs = []
+        # Get the data
+        ticker_return = funds_processed[funds_processed["Ticker"] == ticker]
 
-for ticker in tickers:
-    print(ticker)
-    # Get the data
-    ticker_return = funds_processed[funds_processed["Ticker"] == ticker]
+        ticker_train = ticker_return[ticker_return["Type"] == "train"]
+        ticker_test = ticker_return[ticker_return["Type"] == "test"]
 
-    ticker_train = ticker_return[ticker_return["Type"] == "train"]
-    ticker_test = ticker_return[ticker_return["Type"] == "test"]
+        X_train = ticker_train[features]
+        Y_train = ticker_train["Target_tomorrow"]
 
-    X_train = ticker_train[features]
-    Y_train = ticker_train["Target_tomorrow"]
+        X_test = ticker_test[features]
+        Y_test = ticker_test["Target_tomorrow"]
 
-    X_test = ticker_test[features]
-    Y_test = ticker_test["Target_tomorrow"]
+        # Calculate imbalance in test_set (append 3 times makes it easier to fit the results dataframe)
+        imb_true = (sum(Y_test) / len(Y_test)) * 100
+        list_imbalance_true.append(imb_true)
+        list_imbalance_true.append(imb_true)
+        list_imbalance_true.append(imb_true)
 
-    # Random Forest
-    if which_model == "rf":
-        model_rn = "random_forest"
 
-        # get the hyperparameter
 
-        hyper = df_hyperparameter[(df_hyperparameter["Ticker"] == ticker) & (df_hyperparameter["Model"] == model_rn)].Parameter
-        print(hyper)
-        param1, param2, param3, param4 = hyper.iloc[0].split("[")[1].split("]")[0].split(",")
-        print("testing")
+        # Random Forest
+        if "random_forest" in models:
+            model_rn = "random_forest"
 
-        if param2 != " None":
-            param2 = int(param2)
-        else:
-            param2 = None
+            # get the hyperparameter
+            hyper = df_hyperparameter[(df_hyperparameter["Ticker"] == ticker) & (df_hyperparameter["Model"] == model_rn)].Hyperparameter.values[0]
+            parameters = literal_eval(hyper)
 
-        model_rf = RandomForestClassifier(n_estimators=int(param1),
-                                          max_depth=param2,
-                                          min_samples_split=int(param3),
-                                          min_samples_leaf=int(param4),
-                                          random_state=1)
+            # define the model with the best hyperparameters
+            model_rf = RandomForestClassifier(n_estimators=parameters[0],
+                                              max_depth=parameters[1],
+                                              min_samples_split=parameters[2],
+                                              min_samples_leaf=parameters[3])
 
-        model_rf.fit(X_train, Y_train)
-        test_score = model_rf.score(X_test, Y_test)
-        predictions = model_rf.predict(X_test)
-        predict_proba = model_rf.predict_proba(X_test)[:, 1]
-        print("rf")
-        print(model_rf.predict_proba(X_test))
+            # train and predict
+            model_rf.fit(X_train, Y_train)
+            Y_pred = model_rf.predict(X_test)
 
-        ticker_results = ticker_return[ticker_return["Type"] == "test"]
-        ticker_results["Prediction"] = predictions
-        ticker_results["Prediction_Probability"] = predict_proba
+            feature_importances = model_rf.feature_importances_
 
-        ticker_dfs.append(ticker_results)
+            test_accuracy = accuracy_score(Y_test, Y_pred)
+            test_precision = precision_score(Y_test, Y_pred, zero_division=0)
+            imbalance = (sum(Y_pred) / len(Y_pred)) * 100
+            predict_proba = model_rf.predict_proba(X_test)[:, 1]
 
-    if which_model == "svm":
-        model_rn = "svm"
+            # save the evaluation metrics for each seed iteration
+            df_accuracy.loc[(df_accuracy['Ticker'] == ticker) & (
+                    df_accuracy['Model'] == model_rn), seed_col_a] = test_accuracy
+            df_precision.loc[(df_precision['Ticker'] == ticker) & (
+                    df_precision['Model'] == model_rn), seed_col_p] = test_precision
+            df_imbalance.loc[(df_imbalance['Ticker'] == ticker) & (
+                    df_imbalance['Model'] == model_rn), seed_col_i] = imbalance
 
-        # get the hyperparameter
-        parameter_string = df_hyperparameter.loc[(df_hyperparameter['Ticker'] == ticker)
-                                                 & (df_hyperparameter['Model'] == 'svm'), 'Parameter'].iloc[0]
-        parameters = literal_eval(parameter_string)
 
-        # if Kernel: poly
-        if len(parameters) == 4:
+            # save the predictions
+            ticker_results = ticker_test[["Ticker", "Open", "Close", "Target"]].copy()
+            ticker_results["Seed"] = seed_num
+            ticker_results["Model"] = model_rn
+            ticker_results["Prediction"] = Y_pred
 
-            model_svm = svm.SVC(C=parameters[0], kernel=parameters[1], gamma=parameters[2],
-                                degree=parameters[3], probability=True).fit(X_train, Y_train)
+            #ticker_results["Prediction_Probability"] = predict_proba
+            dfs_predictions.append(ticker_results)
 
-            test_score = model_svm.score(X_test, Y_test)
-            predictions = model_svm.predict(X_test)
+
+        if "svm" in models:
+            model_rn = "svm"
+
+            # get the hyperparameter
+            hyper = df_hyperparameter[(df_hyperparameter["Ticker"] == ticker) & (df_hyperparameter["Model"] == model_rn)].Hyperparameter.values[0]
+            parameters = literal_eval(hyper)
+
+            # if Kernel: poly
+            if len(parameters) == 4:
+
+                # define the model with the best hyperparameters
+                model_svm = svm.SVC(C=parameters[0], kernel=parameters[1], gamma=parameters[2],
+                                    degree=parameters[3], probability=True)
+            else:
+                model_svm = svm.SVC(C=parameters[0], kernel=parameters[1], gamma=parameters[2],
+                                    probability=True)
+
+            # train and predict
+            model_svm.fit(X_train, Y_train)
+            Y_pred = model_svm.predict(X_test)
             predict_proba = model_svm.predict_proba(X_test)[:, 1]
-            print("svm")
-            print(model_svm.predict_proba(X_test))
+
+            test_accuracy = accuracy_score(Y_test, Y_pred)
+            test_precision = precision_score(Y_test, Y_pred, zero_division=0)
+            imbalance = (sum(Y_pred) / len(Y_pred)) * 100
+
+            # save the accuracy for each seed iteration
+            df_accuracy.loc[(df_accuracy['Ticker'] == ticker) & (
+                    df_accuracy['Model'] == model_rn), seed_col_a] = test_accuracy
+            df_precision.loc[(df_precision['Ticker'] == ticker) & (
+                    df_precision['Model'] == model_rn), seed_col_p] = test_precision
+            df_imbalance.loc[(df_imbalance['Ticker'] == ticker) & (
+                    df_imbalance['Model'] == model_rn), seed_col_i] = imbalance
+
+            # save the predictions
+            ticker_results = ticker_test[["Ticker", "Open", "Close", "Target"]].copy()
+            ticker_results["Seed"] = seed_num
+            ticker_results["Model"] = model_rn
+            ticker_results["Prediction"] = Y_pred
+
+            #ticker_results["Prediction_Probability"] = predict_proba
+            dfs_predictions.append(ticker_results)
 
 
-            ticker_results = ticker_return[ticker_return["Type"] == "test"]
-            ticker_results["Prediction"] = predictions.copy()
-            ticker_results["Prediction_Probability"] = predict_proba
+        if "neural_network" in models:
+            model_rn = "neural_network"
 
-            ticker_dfs.append(ticker_results)
+            # transform numpy to tensor
+            X_train = torch.tensor(X_train.to_numpy(), dtype=torch.float)
+            Y_train = torch.tensor(Y_train.to_numpy(), dtype=torch.long)
 
-        else:
-            parameter_string = df_hyperparameter.loc[(df_hyperparameter['Ticker'] == ticker) & (df_hyperparameter['Model'] == 'svm'), 'Parameter'].iloc[0]
-            parameters = literal_eval(parameter_string)
+            X_test = torch.tensor(X_test.to_numpy(), dtype=torch.float)
+            Y_test = torch.tensor(Y_test.to_numpy(), dtype=torch.long)
+
+            # number of epochs (config.py)
+            number_epochs = number_epochs
+
+            # get the hyperparameter
+            hyper = df_hyperparameter[(df_hyperparameter["Ticker"] == ticker) & (df_hyperparameter["Model"] == model_rn)].Hyperparameter.values[0]
+            parameters = literal_eval(hyper)
+
+            # define the model with the best hyperparameters
+            learning_rate, number_hidden, hidden_dim = parameters
+
+            model_neural = MLP(len(features), 2, hidden_dim, number_hidden)  # input, output, hidden_dim, #layers
+            criterion = nn.CrossEntropyLoss()
+            optimizer = torch.optim.NAdam(model_neural.parameters(), lr=learning_rate)
+
+            # training
+            for epoch in range(number_epochs):
+                train_correct = 0
+                train_loss = 0
+
+                # Train
+                model_neural.train()
+
+                y_pred = model_neural(X_train)[0]
+                loss = criterion(y_pred, Y_train)
+                loss.backward()
+                optimizer.step()
+
+            # prediction
+            model_neural.eval()
+
+            running_score = 0
+            with torch.no_grad():
+                y_pred = model_neural(X_test)[0]
+                loss = criterion(y_pred, Y_test)
+
+                _, index = torch.max(y_pred, 1)
+                running_score += torch.sum(index == Y_test).item()
+
+            test_accuracy = running_score / len(X_test)
+            predicted_labels_np = index.reshape(-1, 1).numpy()  # y_pred
+            Y_test_np = Y_test.reshape(-1, 1).numpy()
+
+            imbalance = ((sum(index) / len(index)) * 100).item()
+            test_precision = precision_score(Y_test_np, predicted_labels_np, zero_division=0)
+
+            probabilities = softmax(y_pred, dim=1)
+            class_1_probabilities = probabilities[:, 1]
+
+            # save the accuracy for each seed iteration
+            df_accuracy.loc[(df_accuracy['Ticker'] == ticker) & (
+                    df_accuracy['Model'] == model_rn), seed_col_a] = test_accuracy
+            df_precision.loc[(df_precision['Ticker'] == ticker) & (
+                    df_precision['Model'] == model_rn), seed_col_p] = test_precision
+            df_imbalance.loc[(df_imbalance['Ticker'] == ticker) & (
+                    df_imbalance['Model'] == model_rn), seed_col_i] = imbalance
 
 
-            model_svm = svm.SVC(C=parameters[0], kernel=parameters[1], gamma=parameters[2], probability=False).fit(X_train, Y_train)
-            test_score = model_svm.score(X_test, Y_test)
-            predictions = model_svm.predict(X_test)
-            predict_proba = model_svm.predict_proba(X_test)[:, 1]
+            # save the predictions
+            ticker_results = ticker_test[["Ticker", "Open", "Close", "Target"]].copy()
+            ticker_results["Seed"] = seed_num
+            ticker_results["Model"] = model_rn
+            ticker_results["Prediction"] = predicted_labels_np
+            #ticker_results["Prediction_Probability"] = class_1_probabilities.numpy()
+
+            dfs_predictions.append(ticker_results)
 
 
-            ticker_results = ticker_return[ticker_return["Type"] == "test"]
-            ticker_results["Prediction"] = predictions.copy()
-            ticker_results["Prediction_Probability"] = predict_proba
 
-            ticker_dfs.append(ticker_results)
+# Define the mean accuracy and add it to results dataframe
+accuracy_columns = [col for col in df_accuracy.columns if col.startswith('accuracy')]
+df_accuracy['accuracy_mean'] = df_accuracy[accuracy_columns].mean(axis=1)
+df_results["Test_Accuracy"] = df_accuracy['accuracy_mean']
+
+# Define the mean precision and add it to the results dataframe
+precision_columns = [col for col in df_precision.columns if col.startswith('precision')]
+df_precision['precision_mean'] = df_precision[precision_columns].mean(axis=1)
+df_results["Test_Precision"] = df_precision['precision_mean']
+
+# Define the mean imbalance predictions and add it to the results dataframe
+imbalance_columns = [col for col in df_imbalance.columns if col.startswith('prediction')]
+df_imbalance['imbalance_mean'] = df_imbalance[imbalance_columns].mean(axis=1)
+df_results["Imbalance_Predictions"] = df_imbalance['imbalance_mean']
+
+# Define the imbalance in the test set:
+list_imbalance_true_short = list_imbalance_true[0:len(models)*len(tickers)]
+df_results["Imbalance_True"] = list_imbalance_true_short
 
 
 
 # combine all ticker dataframes together
-df_results = pd.concat(ticker_dfs)
+df_predictions = pd.concat(dfs_predictions)
 
 
+# change from long to wide layout
+aggregated_df = df_predictions.groupby(['Date', 'Model', 'Ticker', 'Seed', 'Open', 'Close'])['Prediction'].mean().reset_index()
+df_predictions = aggregated_df.pivot_table(index=['Date', 'Model', 'Ticker', 'Open', 'Close'],
+                                    columns='Seed',
+                                    values='Prediction')
+df_predictions.reset_index(inplace=True)
 
-#df_results = df_results.drop(["DP_1", "DP_2", "MA_5", "MA_10", "MA_30", "MPP_30","MPP_50", "DV_1", "DV_2", "Target_tomorrow", "Type"], axis=1)
-
-df_results = df_results[["Ticker", 'Open', 'Close', 'Target', 'Prediction', 'Prediction_Probability']] #, "Prediction_Probability"]]
-
-print(df_results.head(n=40))
-
-
-
-
-#df_results["Signal"] = ['BUY' if x >= 0.55 else 'HOLD' if x >= 0.45 else 'SELL' for x in df_results.Prediction_Probability]
-df_results["Signal"] = ['BUY' if x >= 0.5 else 'SELL' for x in df_results.Prediction_Probability]
-
-df_results["Signal_unchanged"] = df_results["Signal"]
+# Sum all seed columns to get the majority vote
+seed_columns = [col for col in df_predictions.columns if col.startswith('seed')]
+df_predictions['seed_sum'] = df_predictions[seed_columns].sum(axis=1)
 
 
+### RETURN CALCULATION ###
 
-# Logic to implement the described behavior
-change_to_hold = False
+# Transform the Prediction into a Trading Signal
+threshold_buy = (num_seeds/2)
+df_predictions["Signal"] = ['BUY' if x >= threshold_buy else 'SELL' for x in df_predictions.seed_sum]
 
-
-for i in range(len(df_results)):
-    if df_results.iloc[i]['Signal'] == 'SELL':
-        change_to_hold = False
-    elif df_results.iloc[i]['Signal'] == 'BUY' and change_to_hold:
-        df_results.iloc[i, df_results.columns.get_loc('Signal')] = 'HOLD'
-    elif df_results.iloc[i]['Signal'] == 'BUY':
-        change_to_hold = True
-
-
-print(df_results.head(n=50))
-print(df_results.columns)
+# Calculate the alternative strategy (Benchmark: Buy and Hold)
+for ticker in tickers:
+    subset = df_predictions[(df_predictions["Ticker"] == ticker) & (df_predictions["Model"] == models[0])]
+    first_open = subset.iloc[0].Open
+    last_close = subset.iloc[-1].Close
+    benchmark_return = (last_close - first_open) / first_open
+    # add to the results
+    df_results.loc[df_results['Ticker'] == ticker, 'Return_Benchmark'] = benchmark_return
 
 
+# Transform Trade Signals into Return
+df_predictions["current_return"] = np.nan
+combine_again = []
+
+# with or without costs
+if with_costs:
+    spread_cost_percent = 0.00015
+else:
+    spread_cost_percent = 0
 
 
+for ticker in tickers:
+    for model in models:
 
-# Signal dataframe
+        # Add a third class: HOLD (when a repeated signal occurs)
+        subset = df_predictions[(df_predictions["Ticker"] == ticker) & (df_predictions["Model"] == model)].copy()
+        subset['Signal'] = subset['Signal'].mask(subset['Signal'].eq('BUY') & subset['Signal'].shift().eq('BUY'), 'HOLD').copy()
+        subset['Signal'] = subset['Signal'].mask(subset['Signal'].eq('SELL') & subset['Signal'].shift().eq('SELL'), 'HOLD').copy()
 
-signal_df = df_results[(df_results["Signal"] == "SELL") | (df_results["Signal"] == "BUY")]
+        # this shift is very important, to use the today's signal for tomorrow's trades
+        # subset["signal"] shows the prediction for the next day, the shifted variation can be traded the same day
+        subset["Adjusted_Signal"] = subset.Signal.shift(1)
 
-# Initialize variables
-investment = 1
-is_buy = False
+        # sell everything on the last day
+        subset.iloc[-1, subset.columns.get_loc("Adjusted_Signal")] = "SELL"
 
-
-
-investments = []
-dates = []
-
-for i in range(len(signal_df)):
-
-    if signal_df.iloc[i]["Signal"] == "BUY":
-        buy_price = signal_df.iloc[i]["Open"]
-        is_buy = True
-
-    elif signal_df.iloc[i]["Signal"] == "SELL" and is_buy:
-        sell_price = signal_df.iloc[i]["Close"]
-        return_rate = (sell_price - buy_price) / buy_price
-        investment *= (1+ return_rate)
-
-        print(signal_df.index[i])
-        dates.append(signal_df.index[i])
-        investments.append(investment)
-        print(investment)
+        # Implementation of the trading logic
+        investment = 1
         is_buy = False
 
+        for i in range(len(subset)):
+
+            if subset.iloc[i]["Adjusted_Signal"] == "BUY":
+                buy_price = subset.iloc[i]["Open"]
+                adjusted_buy_price = buy_price * (1+spread_cost_percent)
+                is_buy = True
+                return_rate_b = 0
+
+                subset.iat[i, subset.columns.get_loc('current_return')] = "buy"
+
+            elif subset.iloc[i]["Adjusted_Signal"] == "SELL" and is_buy:
+
+                sell_price = subset.iloc[i]["Open"] # sell Open price
+                adjusted_sell_price = sell_price * (1-spread_cost_percent)
+
+                return_rate = (adjusted_sell_price - adjusted_buy_price) / adjusted_buy_price
+                investment *= (1+return_rate)
+
+                subset.iat[i, subset.columns.get_loc('current_return')] = investment
+                is_buy = False
 
 
-inv_return = (investment -1) / 1
-print(f"Return S&P in RF: {round(inv_return*100, 4)}%")
-
-# Alternative (buy and hold benchmark strategy)
-first_open = signal_df.iloc[1].Open
-last_close = signal_df.iloc[-1].Close
-benchmark_return = (last_close - first_open) / first_open
-print(f"Return S&P buy&hold: {round(benchmark_return*100, 4)}%")
+        df_results.loc[(df_results['Ticker'] == ticker) & (
+                df_results['Model'] == model), 'Return_Model'] = (investment - 1) / 1
 
 
+        combine_again.append(subset)
+
+
+df_predictions = pd.concat(combine_again)
+df_results["beat"] = df_results.Return_Model > df_results.Return_Benchmark
+
+
+print(df_results)
+df_results.to_csv(full_path + "data/funds_final_returns.csv", encoding="utf-8", index=True)
 
 
 
 # Plotting
-df_results.index = pd.to_datetime(df_results.index)
+plotting = False
+if plotting:
+    subs = df_predictions[(df_predictions.Ticker == "VOO") & (df_predictions.Model == "random_forest")]
 
-plt.figure(figsize=(14, 7))
-plt.plot(df_results.index, df_results['Close'], label='Close Price', color='skyblue')
-plt.scatter(df_results[df_results['Signal'] == "SELL"].index, df_results[df_results['Signal'] == "SELL"]['Close'], label='Sell Signal', color='red', marker='^')
-plt.scatter(df_results[df_results['Signal'] == "BUY"].index, df_results[df_results['Signal'] == "BUY"]['Close'], label='Buy Signal', color='green', marker='^')
+    subs.index = pd.to_datetime(subs.Date).copy()
+    print(subs)
 
+    plt.figure(figsize=(14, 7))
+    plt.plot(subs.index, subs['Open'], label='Close Price', color='skyblue')
+    plt.scatter(subs[subs['Adjusted_Signal'] == "SELL"].index, subs[subs['Adjusted_Signal'] == "SELL"]['Open'], label='Sell Signal', color='red', marker='^')
+    plt.scatter(subs[subs['Adjusted_Signal'] == "BUY"].index, subs[subs['Adjusted_Signal'] == "BUY"]['Open'], label='Buy Signal', color='green', marker='^')
 
+    # Initialize holding state and start_date
+    holding = False
+    start_date = subs.index[0]
 
+    # Add shading for periods where stocks are not held
+    for i in range(len(subs)):
+        if subs['Adjusted_Signal'].iloc[i] == 'BUY' and not holding:
+            end_date = subs.index[i]
+            # Shade the period of not holding with red color
+            plt.axvspan(start_date, end_date, color='red', alpha=0.1)
+            start_date = subs.index[i]
+            holding = True
+        elif subs['Adjusted_Signal'].iloc[i] == 'SELL' and holding:
+            end_date = subs.index[i]
+            # Shade the period of holding with green color
+            plt.axvspan(start_date, end_date, color='green', alpha=0.1)
+            start_date = subs.index[i]
+            holding = False
 
-plt.title('Stock Market Predictions with Buy Signals')
-plt.xlabel('Date')
-plt.ylabel('Close Price')
-plt.legend()
-plt.grid(True)
-plt.xticks(rotation=45)
-plt.tight_layout()
+    # If the last action was a 'BUY', shade until the end of the dataset
+    if holding:
+        plt.axvspan(start_date, subs.index[-1], color='green', alpha=0.1)
+    else:
+        plt.axvspan(start_date, subs.index[-1], color='red', alpha=0.1)
 
-plt.show()
+    plt.title('Stock Market Predictions with Buy Signals')
+    plt.xlabel('Date')
+    plt.ylabel('Close Price')
+    plt.legend()
+    plt.grid(True)
+    plt.xticks(rotation=45)
+    plt.tight_layout()
 
-
-
-
-############# JUNK ##############
-"""
-# Import the predictions
-funds_predictions = pd.read_csv(full_path + "data/funds_predictions.csv", index_col=0)
-
-
-
-
-trading_days = funds_predictions[funds_predictions["Signal"] == 0]
-print(trading_days)
-
-return_sum = trading_days["Daily_Return"].sum()
-print(return_sum)
-
-
-print("Benchmark")
-
-first_open = funds_predictions.Open[1]
-last_close = funds_predictions.Close[-1]
-benchmark_return = (last_close - first_open) / first_open
-
-print(benchmark_return)
-
-
-
-
-funds_predictions.index = pd.to_datetime(funds_predictions.index)
-
-# Plotting
-plt.figure(figsize=(14, 7))
-plt.plot(funds_predictions.index, funds_predictions['Close'], label='Close Price', color='skyblue')
-plt.scatter(funds_predictions[funds_predictions['Signal'] == 1].index, funds_predictions[funds_predictions['Signal'] == 1]['Close'], label='Buy Signal', color='red', marker='^')
-
-plt.title('Stock Market Predictions with Buy Signals')
-plt.xlabel('Date')
-plt.ylabel('Close Price')
-plt.legend()
-plt.grid(True)
-plt.xticks(rotation=45)
-plt.tight_layout()
-
-plt.show()
-"""
-
-# Plotting
+    plt.show()
 
 
-"""df_results.index = pd.to_datetime(df_results.index)
+# Feature Importance
+importance = False
+if importance:
+    indices = np.argsort(feature_importances)[::-1]
+    sorted_feature_names = [X_train.columns[i] for i in indices]
 
-
-plt.figure(figsize=(14, 7))
-plt.plot(df_results.index, df_results['Close'], label='Close Price', color='skyblue')
-plt.scatter(df_results[df_results['Prediction'] == 1].index, df_results[df_results['Prediction'] == 1]['Close'], label='Buy Signal', color='green', marker='^')
-plt.scatter(df_results[df_results['Prediction'] == 0].index, df_results[df_results['Prediction'] == 0]['Close'], label='Sell Signal', color='red', marker='^')
-
-
-
-plt.title('Stock Market Predictions with Buy Signals')
-plt.xlabel('Date')
-plt.ylabel('Close Price')
-plt.legend()
-plt.grid(True)
-plt.xticks(rotation=45)
-plt.tight_layout()
-"""
-#plt.show()
-
+    plt.figure(figsize=(12, 8))
+    plt.title("Feature Importances")
+    plt.bar(range(X_train.shape[1]), feature_importances[indices], color="r", align="center")
+    plt.xticks(range(X_train.shape[1]), sorted_feature_names, rotation=45, ha="right")
+    plt.xlim([-1, X_train.shape[1]])
+    plt.ylabel('Importance')
+    plt.xlabel('Feature')
+    plt.tight_layout()
+    plt.show()

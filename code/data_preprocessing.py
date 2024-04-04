@@ -8,6 +8,7 @@ from ml_trading.code.config import full_path, train_end, validate_end
 import pandas as pd
 from rich import print
 from sklearn.preprocessing import MinMaxScaler
+pd.set_option('display.max_rows', None)
 
 
 # Import the generated data
@@ -51,10 +52,41 @@ for ticker in tickers:
         max_price = ticker_return["High"].rolling(price).max()
         ticker_return[col_name] = (ticker_return["Close"] - min_price) / (max_price - min_price).replace(0, pd.NA)
 
-    # Percentage Price Oscillator
+
+    # Relative Strength Index (RSI)
+    rsi_window = 14
+
+    delta = ticker_return["Close"].diff()
+    gain = delta.where(delta > 0, 0)
+    loss = delta.where(delta < 0, 0)
+    gain_ema = gain.ewm(span=rsi_window, adjust=False).mean()
+    loss_ema = -loss.ewm(span=rsi_window, adjust=False).mean()
+    rs = gain_ema / loss_ema
+
+    ticker_return['RSI'] = (100 - (100 / (1 + rs))) / 100 # /100 to normalize
+
+    # Stochastic Oscillator
+    k_window = 14
+    d_window = 3
+    # %K line
+    low_min = ticker_return["Low"].rolling(window=k_window).min()
+    high_max = ticker_return["High"].rolling(window=k_window).max()
+    ticker_return["%K"] = (((ticker_return["Close"] - low_min) / (high_max - low_min)) * 100) / 100 # /100 normalize
+    # %D Line
+    ticker_return["%D"] = (ticker_return["%K"].rolling(window=d_window).mean())
+
+
+    # MACD => Appel, Gerald 1970 (thomsett 2019)
     #
     #
     #
+
+    # Percentage Price Oscillator (chiang)
+    #
+    #
+    #
+
+
 
     # Split the dataset into train and set test
     ticker_train = ticker_return[ticker_return.index < validate_end].copy()
@@ -95,11 +127,13 @@ for ticker in tickers:
 
 # combine all ticker dataframes together
 processed_data = pd.concat(ticker_dfs)
+
+
 processed_data.to_csv(full_path + "data/funds_data_processed.csv", encoding="utf-8", index=True)
 
 
 
-print(processed_data)
+print(processed_data.head(n=10))
 print(processed_data.columns)
 
 print('[green]The data is processed now. Now, the model is ready to be trained.[/]')

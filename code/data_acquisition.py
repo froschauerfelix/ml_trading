@@ -14,7 +14,16 @@ from rich import print
 
 funds_info = pd.read_csv(full_path + "data/funds_info.csv")
 
-tickers = list(funds_info.fund_ticker)
+#tickers = list(funds_info.fund_ticker)
+
+tickers = ["SPY", "VOO", "MDY", "IWM"]
+# SPY = S&P 500
+# VOO = Nasdaq
+# MDY = S&P  midcap
+# IWM = russel index
+
+
+
 dfs = []
 
 # download data from yahoo finance and create a dataset for each ticker
@@ -34,23 +43,27 @@ print('[green]The data generation process is finished. You can now continue with
 print(df)
 plotting = input("Do you want to see the historical plot of the data you just downloaded? (yes/no)")
 
-
-# visualize the tickers (optional)
+# Adjusted visualization part
 if plotting == "yes":
-    fig, axs = plt.subplots(math.ceil(len(tickers) / 2), 2)
+    # Calculate the number of rows and columns for the subplot
+    num_plots = len(tickers)
+    num_columns = 2
+    num_rows = math.ceil(num_plots / num_columns)
+
+    fig, axs = plt.subplots(num_rows, num_columns, figsize=(10, num_rows * 5))  # Adjust figsize as needed
 
     for idx, ticker in enumerate(tickers):
         sub_df = df[df["Ticker"] == ticker]
 
-        row = idx % 3
-        col = idx % 2
+        row = idx // num_columns  # Corrected row calculation
+        col = idx % num_columns  # Column calculation remains the same
 
-        axs[row, col].plot(sub_df.index.values, sub_df.Open.values)
+        axs[row, col].plot(sub_df.index, sub_df['Open'])
         axs[row, col].set_title(f"Ticker: {ticker}")
-        for ax in axs.flat:
-            ax.label_outer()
+
+    # This part ensures that any extra subplots not used are turned off
+    for idx in range(num_plots, num_rows * num_columns):
+        axs.flat[idx].axis('off')
 
     plt.tight_layout()
     plt.show()
-
-

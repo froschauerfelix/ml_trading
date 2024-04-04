@@ -3,24 +3,21 @@ import os, sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 
-from ml_trading.code.config import full_path, train_end, models, features
+from ml_trading.code.config import full_path, train_end, models, features, number_epochs
+from ml_trading.code.utils import MLP
 
 import pandas as pd
 import numpy as np
 
 from sklearn.ensemble import RandomForestClassifier
 from sklearn import svm
+from sklearn.metrics import precision_score, accuracy_score
 
 from rich import print
 import itertools
 
-
-
-from sklearn.metrics import precision_score
-from matplotlib import pyplot as plt
-import seaborn as sns
-from sklearn.metrics import confusion_matrix
-from sklearn import tree
+import torch
+from torch import nn
 
 
 # Select what models to train (config.py)
@@ -32,11 +29,10 @@ neural_network = models[2]
 # Import data
 funds_processed = pd.read_csv(full_path + "data/funds_data_processed.csv", index_col=0)
 
-#funds_return = pd.read_csv(full_path + "data/funds_return.csv", index_col=0)
+# Define the looping variable
 tickers = list(funds_processed.Ticker.unique())
 
-
-### Define a dataframe for the results
+### Define a dataframe for the results ###
 number_models = random_forest+neural_network+support_vector_machine # 3 if all models are True
 number_rows = number_models * len(tickers)
 
@@ -50,9 +46,10 @@ model_column = list_models * len(tickers)
 
 # define dataframe
 df_hyperparameter = pd.DataFrame(zip(ticker_column, model_column), columns=["Ticker", "Model"])
-df_hyperparameter["Test_score"] = np.nan
-df_hyperparameter["Parameter"] = np.nan
-
+df_hyperparameter["Validation_Accuracy"] = np.nan
+df_hyperparameter["Validation_Precision"] = np.nan
+df_hyperparameter["Hyperparameter"] = np.nan
+df_hyperparameter["% of buy signal"] = np.nan
 
 
 for ticker in tickers:
@@ -62,10 +59,6 @@ for ticker in tickers:
     ticker_train = ticker_return[(ticker_return["Type"] == "train") & (ticker_return.index < train_end)]
     ticker_validate = ticker_return[(ticker_return["Type"] == "train") & (ticker_return.index > train_end)]
 
-    ticker_train_full = ticker_return[ticker_return["Type"] == "train"]
-    ticker_test = ticker_return[ticker_return["Type"] == "test"]
-
-
     # to tune the hyperparameters
     X_train = ticker_train[features]
     Y_train = ticker_train["Target_tomorrow"]
@@ -73,13 +66,8 @@ for ticker in tickers:
     X_validate = ticker_validate[features]
     Y_validate = ticker_validate["Target_tomorrow"]
 
-    # for getting a test score (Accuracy) and Final Predictions
-    X_train_full = ticker_train_full[features]
-    Y_train_full = ticker_train_full["Target_tomorrow"]
-
-    X_test = ticker_test[features]
-    Y_test = ticker_test["Target_tomorrow"]
-
+    #print("Imbalance in validation set")
+    #print(Y_validate.value_counts())
     ###################### RANDOM FOREST ######################
     if random_forest:
         model_rn = "random_forest"
@@ -98,8 +86,9 @@ for ticker in tickers:
                                                param_grid["min_samples_split"],
                                                param_grid["min_samples_leaf"])
 
-
         best_validation_score = 0
+        precision_of_best_validation_score = 0
+        percentage_of_best_validation_score = 0
         for n_estimators, max_depth, min_samples_split, min_samples_leaf in param_combinations:
 
             model_rf = RandomForestClassifier(n_estimators=n_estimators,
@@ -108,37 +97,37 @@ for ticker in tickers:
                                               min_samples_leaf=min_samples_leaf,
                                               random_state=1)
             model_rf.fit(X_train, Y_train)
-            validation_score = model_rf.score(X_validate, Y_validate)
+            Y_pred = model_rf.predict(X_validate)
+            validation_accuracy = accuracy_score(Y_validate, Y_pred)
+            validation_precision = precision_score(Y_validate, Y_pred, zero_division=0)
+            buy_percentage = (sum(Y_pred) / len(Y_pred)) * 100
+
 
             # Save the parameters of the best validation score
-            if validation_score > best_validation_score:
-                best_validation_score = validation_score
+            if validation_accuracy > best_validation_score:
+                best_validation_score = validation_accuracy
+                precision_of_best_validation_score = validation_precision
+                percentage_of_best_validation_score = buy_percentage
                 best_params = [n_estimators, max_depth, min_samples_split, min_samples_leaf]
 
-
-        # Test with the complete train data
-        best_model = RandomForestClassifier(n_estimators=best_params[0],
-                                          max_depth=best_params[1],
-                                          min_samples_split=best_params[2],
-                                          min_samples_leaf=best_params[3],
-                                          random_state=1).fit(X_train_full, Y_train_full)
-        best_model.fit(X_train_full, Y_train_full)
-
-
-        test_score_rf = best_model.score(X_test, Y_test)
-        print(f"Final Test Score: {test_score_rf}")
-
         # Save the results
-        df_hyperparameter.loc[(df_hyperparameter['Ticker'] == ticker) & (df_hyperparameter['Model'] == model_rn), 'Test_score'] = test_score_rf
+        df_hyperparameter.loc[(df_hyperparameter['Ticker'] == ticker) & (
+                    df_hyperparameter['Model'] == model_rn), 'Validation_Accuracy'] = best_validation_score
+
+        df_hyperparameter.loc[(df_hyperparameter['Ticker'] == ticker) & (
+                    df_hyperparameter['Model'] == model_rn), 'Validation_Precision'] = precision_of_best_validation_score
+
+        df_hyperparameter.loc[(df_hyperparameter['Ticker'] == ticker) & (
+                    df_hyperparameter['Model'] == model_rn), '% of buy signal'] = percentage_of_best_validation_score
 
         params_as_string = str([best_params[0], best_params[1], best_params[2], best_params[3]])
-        df_hyperparameter.loc[(df_hyperparameter['Ticker'] == ticker) & (df_hyperparameter['Model'] == model_rn), 'Parameter'] = params_as_string
+        df_hyperparameter.loc[(df_hyperparameter['Ticker'] == ticker) & (
+                    df_hyperparameter['Model'] == model_rn), 'Hyperparameter'] = params_as_string
 
-    ###################### SUPPORT VECTOR MACHINE ######################
+    ################## SUPPORT VECTOR MACHINE #################
     if support_vector_machine:
         model_rn = "svm"
         print(f"{ticker} is trained using SVM.")
-        best_validation_score = 0
 
         # LINEAR, RBF, SIGMOID - Kernel
         param_grid_kernel = {
@@ -152,13 +141,21 @@ for ticker in tickers:
             param_grid_kernel['gamma']
         )
 
+        best_validation_score = 0
+        precision_of_best_validation_score = 0
+        percentage_of_best_validation_score = 0
         for C, kernel, gamma in param_combinations_kernel:
             model_svm = svm.SVC(C=C, kernel=kernel, gamma=gamma, random_state=1).fit(X_train, Y_train)
-            validation_score = model_svm.score(X_validate, Y_validate)
+            Y_pred = model_svm.predict(X_validate)
+            validation_accuracy = accuracy_score(Y_validate, Y_pred)
+            validation_precision = precision_score(Y_validate, Y_pred, zero_division=0)
+            buy_percentage = (sum(Y_pred) / len(Y_pred)) * 100
 
             # Save the parameters of the best validation score
-            if validation_score > best_validation_score:
-                best_validation_score = validation_score
+            if validation_accuracy > best_validation_score:
+                best_validation_score = validation_accuracy
+                precision_of_best_validation_score = validation_precision
+                percentage_of_best_validation_score = buy_percentage
                 best_params = [C, kernel, gamma]
 
         # POLY - Kernel
@@ -177,50 +174,144 @@ for ticker in tickers:
 
         for C, kernel, gamma, degree  in param_combinations_poly:
             model_svm = svm.SVC(C=C, kernel=kernel, gamma=gamma, degree=degree, random_state=1).fit(X_train, Y_train)
-            validation_score = model_svm.score(X_validate, Y_validate)
+            Y_pred = model_svm.predict(X_validate)
+            validation_accuracy = accuracy_score(Y_validate, Y_pred)
+            validation_precision = precision_score(Y_validate, Y_pred, zero_division=0)
+            buy_percentage = (sum(Y_pred) / len(Y_pred)) * 100
 
             # Save the parameters of the best validation score
-            if validation_score > best_validation_score:
-                best_validation_score = validation_score
+            if validation_accuracy > best_validation_score:
+                best_validation_score = validation_accuracy
+                precision_of_best_validation_score = validation_precision
+                percentage_of_best_validation_score = buy_percentage
                 best_params = [C, kernel, gamma, degree]
 
 
+        # Save the results
+        if len(best_params) == 4: # Kernel: "poly"
+            df_hyperparameter.loc[(df_hyperparameter['Ticker'] == ticker) & (
+                    df_hyperparameter['Model'] == model_rn), 'Validation_Accuracy'] = best_validation_score
 
-        # Test with the complete train data
-        # if best the kernel "poly" was the best model:
-        if len(best_params) == 4:
-            best_model = svm.SVC(C=best_params[0], kernel=best_params[1], gamma=best_params[2], degree=best_params[3], random_state=1)
-            best_model.fit(X_train_full, Y_train_full)
+            df_hyperparameter.loc[(df_hyperparameter['Ticker'] == ticker) & (
+                    df_hyperparameter['Model'] == model_rn), 'Validation_Precision'] = precision_of_best_validation_score
 
-            test_score_svm = best_model.score(X_test, Y_test)
-            print(f"Final Test Score: {test_score_svm}")
-
-            # Save the results
-            df_hyperparameter.loc[(df_hyperparameter['Ticker'] == ticker) & (df_hyperparameter['Model'] == model_rn), 'Test_score'] = test_score_svm
+            df_hyperparameter.loc[(df_hyperparameter['Ticker'] == ticker) & (
+                    df_hyperparameter['Model'] == model_rn), '% of buy signal'] = percentage_of_best_validation_score
 
             params_as_string = str([best_params[0], best_params[1], best_params[2], best_params[3]])
-            df_hyperparameter.loc[(df_hyperparameter['Ticker'] == ticker) & (df_hyperparameter['Model'] == model_rn), 'Parameter'] = params_as_string
+            df_hyperparameter.loc[(df_hyperparameter['Ticker'] == ticker) & (
+                    df_hyperparameter['Model'] == model_rn), 'Hyperparameter'] = params_as_string
+
 
         # if kernel: linear, rbf, sigmoid
         else:
-            best_model = svm.SVC(C=best_params[0], kernel=best_params[1], gamma=best_params[2], random_state=1)
-            best_model.fit(X_train_full, Y_train_full)
+            df_hyperparameter.loc[(df_hyperparameter['Ticker'] == ticker) & (
+                    df_hyperparameter['Model'] == model_rn), 'Validation_Accuracy'] = best_validation_score
 
-            test_score_svm = best_model.score(X_test, Y_test)
-            print(f"Final Test Score: {test_score_svm}")
+            df_hyperparameter.loc[(df_hyperparameter['Ticker'] == ticker) & (
+                    df_hyperparameter['Model'] == model_rn), 'Validation_Precision'] = precision_of_best_validation_score
 
-            # Save the results
-            df_hyperparameter.loc[(df_hyperparameter['Ticker'] == ticker) & (df_hyperparameter['Model'] == model_rn), 'Test_score'] = test_score_svm
+            df_hyperparameter.loc[(df_hyperparameter['Ticker'] == ticker) & (
+                    df_hyperparameter['Model'] == model_rn), '% of buy signal'] = percentage_of_best_validation_score
 
             params_as_string = str([best_params[0], best_params[1], best_params[2]])
-            df_hyperparameter.loc[(df_hyperparameter['Ticker'] == ticker) & (df_hyperparameter['Model'] == model_rn), 'Parameter'] = params_as_string
+            df_hyperparameter.loc[(df_hyperparameter['Ticker'] == ticker) & (
+                    df_hyperparameter['Model'] == model_rn), 'Hyperparameter'] = params_as_string
 
+    ###################### NEURAL NETWORK #####################
     if neural_network:
-        pass
-        # to be continued...
+        model_rn = "neural_network"
+        print(f"{ticker} is trained using a neural network.")
+
+        X_train = torch.tensor(X_train.to_numpy(), dtype=torch.float)
+        Y_train = torch.tensor(Y_train.to_numpy(), dtype=torch.long)
+
+        X_validate = torch.tensor(X_validate.to_numpy(), dtype=torch.float)
+        Y_validate = torch.tensor(Y_validate.to_numpy(), dtype=torch.long)
+
+
+        # hyperparameter (config.py)
+        number_epochs = number_epochs
+
+        # Hyperparameter tuning
+        param_grid = {
+            'learning_rates': [10, 1,0.1, 0.01, 0.001, 0.0001],  # Number of trees in the forest
+            'number_hidden': [1, 5, 10, 20],  # Maximum number of levels in tree
+            'hidden_dim': [1, 2, 4, 8, 16]  # Minimum number of samples required to split a node
+        }
+
+        param_combinations = itertools.product(param_grid["learning_rates"],
+                                               param_grid["number_hidden"],
+                                               param_grid["hidden_dim"])
+
+        best_validation_score = 0
+        precision_of_best_validation_score = 0
+        percentage_of_best_validation_score = 0
+        for learning_rate, number_hidden, hidden_dim in param_combinations:
+
+            # Model structure
+            model_neural = MLP(len(features), 2, hidden_dim, number_hidden) # input, output, hidden_dim, #layers
+            criterion = nn.CrossEntropyLoss()
+            optimizer = torch.optim.NAdam(model_neural.parameters(), lr=learning_rate)
+
+            for epoch in range(number_epochs):
+                train_correct = 0
+                train_loss = 0
+
+                # Train
+                model_neural.train()
+
+                y_pred = model_neural(X_train)[0]
+                loss = criterion(y_pred, Y_train)
+                loss.backward()
+                optimizer.step()
+
+                # if last epoch
+                if epoch == number_epochs-1:
+                    model_neural.eval()
+                    running_score = 0
+
+                    with torch.no_grad():
+                        y_pred = model_neural(X_validate)[0]
+                        loss = criterion(y_pred, Y_validate)
+
+                        _, index = torch.max(y_pred, 1)
+                        running_score += torch.sum(index == Y_validate).item()
+
+                    epoch_score = running_score / len(X_validate)
+                    predicted_labels_np = index.reshape(-1, 1).numpy() #y_pred
+                    Y_validate_np = Y_validate.reshape(-1, 1).numpy()
+
+                    buy_percentage = ((sum(index) / len(index)) * 100).item()
+                    validation_precision = precision_score(Y_validate_np, predicted_labels_np, zero_division=0)
+
+
+                    # Save the parameters of the best validation score
+                    if epoch_score > best_validation_score:
+                        best_validation_score = epoch_score
+                        precision_of_best_validation_score = validation_precision
+                        percentage_of_best_validation_score = buy_percentage
+                        best_params = [learning_rate, number_hidden, hidden_dim]
+
+                    #print(f"Validation accuracy: {epoch_score}")
+
+
+        # Save the results
+        df_hyperparameter.loc[(df_hyperparameter['Ticker'] == ticker) & (
+                df_hyperparameter['Model'] == model_rn), 'Validation_Accuracy'] = best_validation_score
+
+        df_hyperparameter.loc[(df_hyperparameter['Ticker'] == ticker) & (
+                df_hyperparameter['Model'] == model_rn), 'Validation_Precision'] = precision_of_best_validation_score
+
+        df_hyperparameter.loc[(df_hyperparameter['Ticker'] == ticker) & (
+                df_hyperparameter['Model'] == model_rn), '% of buy signal'] = percentage_of_best_validation_score
+
+        params_as_string = str([best_params[0], best_params[1], best_params[2]])
+        df_hyperparameter.loc[(df_hyperparameter['Ticker'] == ticker) & (
+                df_hyperparameter['Model'] == model_rn), 'Hyperparameter'] = params_as_string
 
 
 
 print(df_hyperparameter)
 
-df_hyperparameter.to_csv(full_path + "data/funds_hyperparameter.csv", encoding="utf-8", index=True)
+df_hyperparameter.to_csv(full_path + "data/funds_hyperparameter_all.csv", encoding="utf-8", index=True)
