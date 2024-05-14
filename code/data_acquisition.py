@@ -16,12 +16,18 @@ funds_info = pd.read_csv(full_path + "data/funds_info.csv")
 
 #tickers = list(funds_info.fund_ticker)
 
-tickers = ["SPY", "VOO", "MDY", "IWM"]
+#tickers = ["SPY", "VOO", "MDY", "IWM", "RMIC"]
+    
+tickers = ["SPY", "QQQ", "IWC"]
+
 # SPY = S&P 500
-# VOO = Nasdaq
+# QQQ = Nasdaq
+
+
 # MDY = S&P  midcap
 # IWM = russel index
-
+# Russell Microcap = RUMIC
+# ishares micro cap etf
 
 
 dfs = []

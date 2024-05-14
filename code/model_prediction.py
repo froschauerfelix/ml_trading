@@ -105,9 +105,10 @@ for seed in range(1, num_seeds+1):
 
             # define the model with the best hyperparameters
             model_rf = RandomForestClassifier(n_estimators=parameters[0],
-                                              max_depth=parameters[1],
-                                              min_samples_split=parameters[2],
-                                              min_samples_leaf=parameters[3])
+                                              criterion=parameters[1],
+                                              max_depth=parameters[2],
+                                              min_samples_split=parameters[3],
+                                              min_samples_leaf=parameters[4])
 
             # train and predict
             model_rf.fit(X_train, Y_train)
@@ -274,6 +275,7 @@ df_results["Test_Precision"] = df_precision['precision_mean']
 # Define the mean imbalance predictions and add it to the results dataframe
 imbalance_columns = [col for col in df_imbalance.columns if col.startswith('prediction')]
 df_imbalance['imbalance_mean'] = df_imbalance[imbalance_columns].mean(axis=1)
+print(df_imbalance)
 df_results["Imbalance_Predictions"] = df_imbalance['imbalance_mean']
 
 # Define the imbalance in the test set:
@@ -320,7 +322,7 @@ combine_again = []
 
 # with or without costs
 if with_costs:
-    spread_cost_percent = 0.00015
+    spread_cost_percent = 0.002 # 0.00015
 else:
     spread_cost_percent = 0
 
@@ -378,17 +380,23 @@ df_results["beat"] = df_results.Return_Model > df_results.Return_Benchmark
 
 
 print(df_results)
-df_results.to_csv(full_path + "data/funds_final_returns.csv", encoding="utf-8", index=True)
 
+df_results.to_csv(full_path + "data/funds_return_micro.csv", encoding="utf-8", index=True)
+
+
+test = df_predictions[(df_predictions.Ticker == "IWC") & (df_predictions.Model == "random_forest")]
+test['seed_sum'].hist()#.hist(bins=num_seeds+1, range=(0, num_seeds), align='left', rwidth=0.8)
+plt.xlabel('Number')
+plt.title('Density Plot of Numbers from 0 to n')
 
 
 # Plotting
-plotting = False
+plotting = True
 if plotting:
-    subs = df_predictions[(df_predictions.Ticker == "VOO") & (df_predictions.Model == "random_forest")]
+    subs = df_predictions[(df_predictions.Ticker == "IWC") & (df_predictions.Model == "random_forest")]
 
     subs.index = pd.to_datetime(subs.Date).copy()
-    print(subs)
+    #print(subs)
 
     plt.figure(figsize=(14, 7))
     plt.plot(subs.index, subs['Open'], label='Close Price', color='skyblue')
@@ -429,6 +437,11 @@ if plotting:
     plt.tight_layout()
 
     plt.show()
+
+
+
+
+
 
 
 # Feature Importance

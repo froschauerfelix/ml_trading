@@ -75,13 +75,15 @@ for ticker in tickers:
 
         # Hyperparameter tuning
         param_grid = {
-            'n_estimators': [20, 100, 200],  # Number of trees in the forest
-            'max_depth': [10, 20, None],  # Maximum number of levels in tree
-            'min_samples_split': [2, 5, 10],  # Minimum number of samples required to split a node
-            'min_samples_leaf': [2, 4]  # Minimum number of samples required at each leaf node
+            'n_estimators': [20, 100, 200],  # number of trees
+            'criterion': ['gini', 'entropy'], # calculation of impurity
+            'max_depth': [5, 10, 20, None],  # maximum number of levels
+            'min_samples_split': [2, 5, 10, 20],  # minimum number of samples required to split a node
+            'min_samples_leaf': [1, 3, 5]  # minimum number of samples required at each leaf node
         }
 
         param_combinations = itertools.product(param_grid["n_estimators"],
+                                               param_grid["criterion"],
                                                param_grid["max_depth"],
                                                param_grid["min_samples_split"],
                                                param_grid["min_samples_leaf"])
@@ -89,9 +91,10 @@ for ticker in tickers:
         best_validation_score = 0
         precision_of_best_validation_score = 0
         percentage_of_best_validation_score = 0
-        for n_estimators, max_depth, min_samples_split, min_samples_leaf in param_combinations:
+        for n_estimators, criterion, max_depth, min_samples_split, min_samples_leaf in param_combinations:
 
             model_rf = RandomForestClassifier(n_estimators=n_estimators,
+                                              criterion=criterion,
                                               max_depth=max_depth,
                                               min_samples_split=min_samples_split,
                                               min_samples_leaf=min_samples_leaf,
@@ -108,7 +111,7 @@ for ticker in tickers:
                 best_validation_score = validation_accuracy
                 precision_of_best_validation_score = validation_precision
                 percentage_of_best_validation_score = buy_percentage
-                best_params = [n_estimators, max_depth, min_samples_split, min_samples_leaf]
+                best_params = [n_estimators, criterion, max_depth, min_samples_split, min_samples_leaf]
 
         # Save the results
         df_hyperparameter.loc[(df_hyperparameter['Ticker'] == ticker) & (
@@ -120,7 +123,7 @@ for ticker in tickers:
         df_hyperparameter.loc[(df_hyperparameter['Ticker'] == ticker) & (
                     df_hyperparameter['Model'] == model_rn), '% of buy signal'] = percentage_of_best_validation_score
 
-        params_as_string = str([best_params[0], best_params[1], best_params[2], best_params[3]])
+        params_as_string = str([best_params[0], best_params[1], best_params[2], best_params[3], best_params[4]])
         df_hyperparameter.loc[(df_hyperparameter['Ticker'] == ticker) & (
                     df_hyperparameter['Model'] == model_rn), 'Hyperparameter'] = params_as_string
 

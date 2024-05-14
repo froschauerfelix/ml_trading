@@ -2,7 +2,7 @@
 
 import torch
 from torch import nn
-
+import numpy as np
 
 class MLP(nn.Module):
     def __init__(self, input_dim, output_dim, hidden_dim, num_layers):
@@ -43,3 +43,13 @@ class MLP(nn.Module):
         out = torch.sigmoid(out)   # Binary Softmax Activation Function
 
         return out, layer_input, pre_activation
+
+
+
+
+def calculate_wma(length):
+    weights = np.arange(1, length + 1)  # [1, 2, ..., length]
+    def wma(series):
+        return np.dot(series, weights) / weights.sum()
+
+    return wma
