@@ -28,11 +28,9 @@ funds_processed = pd.read_csv(full_path + "data/funds_data_processed.csv", index
 
 # All models that are selected in the config file
 models = df_hyperparameter.Model.unique()
-#models = ["random_forest"]
 
 # Select all tickers for the loop
 tickers = list(df_hyperparameter.Ticker.unique())
-#tickers = ["IDU"]
 
 # number seeds
 num_seeds = 10
@@ -300,7 +298,7 @@ seed_columns = [col for col in df_predictions.columns if col.startswith('seed')]
 df_predictions['seed_sum'] = df_predictions[seed_columns].sum(axis=1)
 
 
-### RETURN CALCULATION ###
+######################## RETURN CALCULATION ################################
 
 # Transform the Prediction into a Trading Signal
 threshold_buy = (num_seeds/2)
@@ -381,69 +379,21 @@ df_results["beat"] = df_results.Return_Model > df_results.Return_Benchmark
 
 print(df_results)
 
-df_results.to_csv(full_path + "data/funds_return_micro.csv", encoding="utf-8", index=True)
+df_results.to_csv(full_path + "data/funds_results.csv", encoding="utf-8", index=True)
+df_predictions.to_csv(full_path + "data/funds_predictions.csv", encoding="utf-8", index=True)
 
 
+
+
+"""
 test = df_predictions[(df_predictions.Ticker == "IWC") & (df_predictions.Model == "random_forest")]
 test['seed_sum'].hist()#.hist(bins=num_seeds+1, range=(0, num_seeds), align='left', rwidth=0.8)
 plt.xlabel('Number')
 plt.title('Density Plot of Numbers from 0 to n')
 
+"""
 
-# Plotting
-plotting = True
-if plotting:
-    subs = df_predictions[(df_predictions.Ticker == "IWC") & (df_predictions.Model == "random_forest")]
-
-    subs.index = pd.to_datetime(subs.Date).copy()
-    #print(subs)
-
-    plt.figure(figsize=(14, 7))
-    plt.plot(subs.index, subs['Open'], label='Close Price', color='skyblue')
-    plt.scatter(subs[subs['Adjusted_Signal'] == "SELL"].index, subs[subs['Adjusted_Signal'] == "SELL"]['Open'], label='Sell Signal', color='red', marker='^')
-    plt.scatter(subs[subs['Adjusted_Signal'] == "BUY"].index, subs[subs['Adjusted_Signal'] == "BUY"]['Open'], label='Buy Signal', color='green', marker='^')
-
-    # Initialize holding state and start_date
-    holding = False
-    start_date = subs.index[0]
-
-    # Add shading for periods where stocks are not held
-    for i in range(len(subs)):
-        if subs['Adjusted_Signal'].iloc[i] == 'BUY' and not holding:
-            end_date = subs.index[i]
-            # Shade the period of not holding with red color
-            plt.axvspan(start_date, end_date, color='red', alpha=0.1)
-            start_date = subs.index[i]
-            holding = True
-        elif subs['Adjusted_Signal'].iloc[i] == 'SELL' and holding:
-            end_date = subs.index[i]
-            # Shade the period of holding with green color
-            plt.axvspan(start_date, end_date, color='green', alpha=0.1)
-            start_date = subs.index[i]
-            holding = False
-
-    # If the last action was a 'BUY', shade until the end of the dataset
-    if holding:
-        plt.axvspan(start_date, subs.index[-1], color='green', alpha=0.1)
-    else:
-        plt.axvspan(start_date, subs.index[-1], color='red', alpha=0.1)
-
-    plt.title('Stock Market Predictions with Buy Signals')
-    plt.xlabel('Date')
-    plt.ylabel('Close Price')
-    plt.legend()
-    plt.grid(True)
-    plt.xticks(rotation=45)
-    plt.tight_layout()
-
-    plt.show()
-
-
-
-
-
-
-
+"""
 # Feature Importance
 importance = False
 if importance:
@@ -459,3 +409,5 @@ if importance:
     plt.xlabel('Feature')
     plt.tight_layout()
     plt.show()
+    
+"""

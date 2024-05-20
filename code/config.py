@@ -16,8 +16,8 @@ validate_end = "2020-01-01"
 
 # Selects which model is trained in model_tuning.py
 random_forest = True
-support_vector_machine = False
-neural_network = False
+support_vector_machine = True
+neural_network = True
 
 # don't change anything here
 models = [random_forest, support_vector_machine, neural_network]

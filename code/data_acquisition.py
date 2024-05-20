@@ -18,16 +18,21 @@ funds_info = pd.read_csv(full_path + "data/funds_info.csv")
 
 #tickers = ["SPY", "VOO", "MDY", "IWM", "RMIC"]
     
-tickers = ["SPY", "QQQ", "IWC"]
+tickers = ["SPY", "QQQ", "IWM", "VB", "IWC", "RZV"]
+
 
 # SPY = S&P 500
 # QQQ = Nasdaq
 
+# SMALL:
+# iShares Russell 2000 ETF (IWM)
+# Vanguard Small-Cap ETF (VB)
 
-# MDY = S&P  midcap
-# IWM = russel index
-# Russell Microcap = RUMIC
-# ishares micro cap etf
+# Mikro:
+# iShares Micro-Cap ETF (IWC)
+# Invesco S&P SmallCap 600 Pure Value ETF (RZV)
+
+
 
 
 dfs = []
