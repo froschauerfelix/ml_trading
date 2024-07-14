@@ -36,7 +36,6 @@ for ticker in tickers:
     relevant_variables = []
 
 
-
     # Simple Moving Averages (SMA)
     moving_averages = [15, 50]
     for move in moving_averages:
@@ -105,7 +104,6 @@ for ticker in tickers:
 
     # Differences in OBV
     ticker_return['OBV_MA_diff'] = ticker_return['OBVMA'] - ticker_return['OBVMA_50']
-
 
 
     # Exponential Moving Averages (EMA)
@@ -177,7 +175,5 @@ ticker_return["DP_2"] = ticker_return["DP_1"].shift(1) # the day before yesterda
 # Change of Volume
 ticker_return["DV_1"] = ticker_return.Volume.diff() # yesterday to today
 ticker_return["DV_2"] = ticker_return["DV_1"].shift(1) # the day before yesterday to yesterday
-
-
 
 """

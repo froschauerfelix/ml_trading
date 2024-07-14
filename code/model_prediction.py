@@ -37,8 +37,12 @@ num_seeds = 10
 
 # Define results dataframe
 df_results = df_hyperparameter[["Ticker", "Model"]].copy()
+
+# delivers the accuracies for all 10 seeds
 df_results["Test_Accuracy"] = np.nan
 df_results["Test_Precision"] = np.nan
+
+
 df_results["Imbalance_Predictions"] = np.nan
 df_results["Imbalance_True"] = np.nan
 df_results["Return_Model"] = np.nan
@@ -271,8 +275,6 @@ for seed in range(1, num_seeds+1):
 # Define the mean accuracy and add it to results dataframe (this one is still wrong)
 accuracy_columns = [col for col in df_accuracy.columns if col.startswith('accuracy')]
 df_accuracy['accuracy_mean'] = df_accuracy[accuracy_columns].mean(axis=1)
-
-
 df_results["Test_Accuracy"] = df_accuracy['accuracy_mean']
 
 
@@ -335,14 +337,6 @@ df_predictions["current_return"] = np.nan
 df_predictions["number_trades"] = np.nan
 combine_again = []
 
-# with or without costs
-if with_costs:
-    spread_cost_percent = 0.002 # 0.00015
-else:
-    spread_cost_percent = 0
-
-
-
 
 
 for ticker in tickers:
@@ -378,11 +372,6 @@ for ticker in tickers:
 
         for i in range(len(subset)):
 
-            #daily_return = (ticker_return["Close"] > ticker_return["Open"]).replace({True:1, False: 0})
-
-
-
-
 
             if subset.iloc[i]["Adjusted_Signal"] == "BUY":
                 buy_price = subset.iloc[i]["Open"]
@@ -417,7 +406,7 @@ for ticker in tickers:
                     subset.iat[i, subset.columns.get_loc("current_return")] = investment
 
 
-
+        # add the results to the correct row in the results dataframe
         df_results.loc[(df_results['Ticker'] == ticker) & (
                 df_results['Model'] == model), 'Return_Model'] = (investment - 1) / 1
 
@@ -438,17 +427,14 @@ for ticker in tickers:
         combine_again.append(subset)
 
 
-# Number_buy
 
 
 df_predictions = pd.concat(combine_again)
 df_results["beat"] = df_results.Return_Model > df_results.Return_Benchmark
 
 
-print(df_predictions.head(n=50))
-
 print(df_results)
-print(df_accuracy)
+
 
 df_results.to_csv(full_path + "data/funds_results_with_costs.csv", encoding="utf-8", index=True)
 df_predictions.to_csv(full_path + "data/funds_predictions_with_costs.csv", encoding="utf-8", index=True)

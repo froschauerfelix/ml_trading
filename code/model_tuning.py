@@ -73,8 +73,6 @@ for ticker in tickers:
     X_validate = ticker_validate[features]
     Y_validate = ticker_validate["Target_tomorrow"]
 
-    #print("Imbalance in validation set")
-    #print(Y_validate.value_counts())
     ###################### RANDOM FOREST ######################
     if random_forest:
         model_rn = "random_forest"
