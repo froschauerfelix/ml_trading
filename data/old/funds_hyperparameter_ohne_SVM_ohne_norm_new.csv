@@ -1,5 +1,0 @@
-,Ticker,Model,Validation_Accuracy,Validation_Precision,Hyperparameter,% of buy signal
-0,SPY,random_forest,0.4801587301587302,0.6527777777777778,"[20, 'entropy', 5, 10, 3]",14.285714285714285
-1,SPY,neural_network,0.5634920634920635,0.5634920634920635,"[10, 1, 2]",100.0
-2,IWC,random_forest,0.5396825396825397,0.5571428571428572,"[20, 'entropy', None, 10, 1]",41.66666666666667
-3,IWC,neural_network,0.5079365079365079,0.5079365079365079,"[10, 1, 1]",100.0
