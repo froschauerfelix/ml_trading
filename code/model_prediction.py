@@ -2,7 +2,7 @@
 import os, sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-from ml_trading.code.config import full_path, features, number_epochs, with_costs
+from ml_trading.code.config import full_path, features, number_epochs, with_costs, average_costs_etf
 from ml_trading.code.utils import MLP
 
 import pandas as pd
@@ -23,7 +23,7 @@ import torch
 from torch import nn
 
 # Import the best parameters
-df_hyperparameter = pd.read_csv(full_path + "data/funds_hyperparameter_all.csv", index_col=0)
+df_hyperparameter = pd.read_csv(full_path + "data/funds_hyperparameter_01.csv", index_col=0)
 funds_processed = pd.read_csv(full_path + "data/funds_data_processed.csv", index_col=0)
 
 # All models that are selected in the config file
@@ -43,6 +43,12 @@ df_results["Imbalance_Predictions"] = np.nan
 df_results["Imbalance_True"] = np.nan
 df_results["Return_Model"] = np.nan
 df_results["Return_Benchmark"] = np.nan
+df_results["Number_Trades"] = np.nan
+df_results["Test_Accuracy_new"] = np.nan
+df_results["Number_buy"] = np.nan
+df_results["Number_sell"] = np.nan
+
+
 
 # dataframe for predictions per seed and per model/ticker
 dfs_predictions = []
@@ -260,10 +266,17 @@ for seed in range(1, num_seeds+1):
 
 
 
-# Define the mean accuracy and add it to results dataframe
+
+
+# Define the mean accuracy and add it to results dataframe (this one is still wrong)
 accuracy_columns = [col for col in df_accuracy.columns if col.startswith('accuracy')]
 df_accuracy['accuracy_mean'] = df_accuracy[accuracy_columns].mean(axis=1)
+
+
 df_results["Test_Accuracy"] = df_accuracy['accuracy_mean']
+
+
+
 
 # Define the mean precision and add it to the results dataframe
 precision_columns = [col for col in df_precision.columns if col.startswith('precision')]
@@ -304,6 +317,8 @@ df_predictions['seed_sum'] = df_predictions[seed_columns].sum(axis=1)
 threshold_buy = (num_seeds/2)
 df_predictions["Signal"] = ['BUY' if x >= threshold_buy else 'SELL' for x in df_predictions.seed_sum]
 
+
+
 # Calculate the alternative strategy (Benchmark: Buy and Hold)
 for ticker in tickers:
     subset = df_predictions[(df_predictions["Ticker"] == ticker) & (df_predictions["Model"] == models[0])]
@@ -314,8 +329,10 @@ for ticker in tickers:
     df_results.loc[df_results['Ticker'] == ticker, 'Return_Benchmark'] = benchmark_return
 
 
-# Transform Trade Signals into Return
+# Transform Trade Signals into Return (two versions with and without the implementation of the costs
+
 df_predictions["current_return"] = np.nan
+df_predictions["number_trades"] = np.nan
 combine_again = []
 
 # with or without costs
@@ -325,11 +342,24 @@ else:
     spread_cost_percent = 0
 
 
+
+
+
 for ticker in tickers:
+    # average spread for this ticker (/100 to adjust for percentage numbers)
+    etf_cost = average_costs_etf[ticker]/100 if with_costs else 0
+
     for model in models:
 
         # Add a third class: HOLD (when a repeated signal occurs)
         subset = df_predictions[(df_predictions["Ticker"] == ticker) & (df_predictions["Model"] == model)].copy()
+
+        #print(subset.head(n=10))
+        subset["Accuracy_calculation"] = subset.Signal.shift(1).replace({"BUY": 1, "SELL": 0})
+        subset["true_label"] = (subset["Close"] > subset["Open"]).replace({True: 1, False: 0})
+
+
+        # Change repeated buy and sell signals into holds (no trading activity)
         subset['Signal'] = subset['Signal'].mask(subset['Signal'].eq('BUY') & subset['Signal'].shift().eq('BUY'), 'HOLD').copy()
         subset['Signal'] = subset['Signal'].mask(subset['Signal'].eq('SELL') & subset['Signal'].shift().eq('SELL'), 'HOLD').copy()
 
@@ -343,21 +373,33 @@ for ticker in tickers:
         # Implementation of the trading logic
         investment = 1
         is_buy = False
+        adjusted_buy_price = 0
+        number_trades = 0
 
         for i in range(len(subset)):
 
+            #daily_return = (ticker_return["Close"] > ticker_return["Open"]).replace({True:1, False: 0})
+
+
+
+
+
             if subset.iloc[i]["Adjusted_Signal"] == "BUY":
                 buy_price = subset.iloc[i]["Open"]
-                adjusted_buy_price = buy_price * (1+spread_cost_percent)
+                adjusted_buy_price = buy_price * (1+etf_cost)
                 is_buy = True
                 return_rate_b = 0
 
-                subset.iat[i, subset.columns.get_loc('current_return')] = "buy"
+                subset.iat[i, subset.columns.get_loc('current_return')] = investment
+
+                number_trades += 1
+                subset.iat[i, subset.columns.get_loc('number_trades')] = number_trades
+
 
             elif subset.iloc[i]["Adjusted_Signal"] == "SELL" and is_buy:
 
                 sell_price = subset.iloc[i]["Open"] # sell Open price
-                adjusted_sell_price = sell_price * (1-spread_cost_percent)
+                adjusted_sell_price = sell_price # * (1-spread_cost_percent) (we just need to deduct the costs of the spread once)
 
                 return_rate = (adjusted_sell_price - adjusted_buy_price) / adjusted_buy_price
                 investment *= (1+return_rate)
@@ -365,49 +407,49 @@ for ticker in tickers:
                 subset.iat[i, subset.columns.get_loc('current_return')] = investment
                 is_buy = False
 
+            else:
+                if is_buy: # change the current_return daily because we hold the asset
+                    current_price = subset.iloc[i]["Open"]
+                    current_return = (current_price -adjusted_buy_price) / adjusted_buy_price
+                    subset.iat[i, subset.columns.get_loc("current_return")] = investment * (1+ current_return)
+
+                else: # not holding the asset right now
+                    subset.iat[i, subset.columns.get_loc("current_return")] = investment
+
+
 
         df_results.loc[(df_results['Ticker'] == ticker) & (
                 df_results['Model'] == model), 'Return_Model'] = (investment - 1) / 1
 
+        df_results.loc[(df_results['Ticker'] == ticker) & (
+                df_results['Model'] == model), 'Number_Trades'] = number_trades
+
+        df_results.loc[(df_results['Ticker'] == ticker) & (
+                df_results['Model'] == model), 'Test_Accuracy_new'] = (subset['Accuracy_calculation'] == subset['true_label']).mean()
+
+        df_results.loc[(df_results['Ticker'] == ticker) & (
+                df_results['Model'] == model), 'Number_buy'] = (subset['Accuracy_calculation'] == 1.0).sum()
+
+        df_results.loc[(df_results['Ticker'] == ticker) & (
+                df_results['Model'] == model), 'Number_sell'] = (subset['Accuracy_calculation'] == 0.0).sum()
+
+
 
         combine_again.append(subset)
+
+
+# Number_buy
 
 
 df_predictions = pd.concat(combine_again)
 df_results["beat"] = df_results.Return_Model > df_results.Return_Benchmark
 
 
+print(df_predictions.head(n=50))
+
 print(df_results)
+print(df_accuracy)
 
-df_results.to_csv(full_path + "data/funds_results.csv", encoding="utf-8", index=True)
-df_predictions.to_csv(full_path + "data/funds_predictions.csv", encoding="utf-8", index=True)
+df_results.to_csv(full_path + "data/funds_results_with_costs.csv", encoding="utf-8", index=True)
+df_predictions.to_csv(full_path + "data/funds_predictions_with_costs.csv", encoding="utf-8", index=True)
 
-
-
-
-"""
-test = df_predictions[(df_predictions.Ticker == "IWC") & (df_predictions.Model == "random_forest")]
-test['seed_sum'].hist()#.hist(bins=num_seeds+1, range=(0, num_seeds), align='left', rwidth=0.8)
-plt.xlabel('Number')
-plt.title('Density Plot of Numbers from 0 to n')
-
-"""
-
-"""
-# Feature Importance
-importance = False
-if importance:
-    indices = np.argsort(feature_importances)[::-1]
-    sorted_feature_names = [X_train.columns[i] for i in indices]
-
-    plt.figure(figsize=(12, 8))
-    plt.title("Feature Importances")
-    plt.bar(range(X_train.shape[1]), feature_importances[indices], color="r", align="center")
-    plt.xticks(range(X_train.shape[1]), sorted_feature_names, rotation=45, ha="right")
-    plt.xlim([-1, X_train.shape[1]])
-    plt.ylabel('Importance')
-    plt.xlabel('Feature')
-    plt.tight_layout()
-    plt.show()
-    
-"""

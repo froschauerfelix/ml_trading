@@ -9,21 +9,31 @@ import matplotlib.pyplot as plt
 from sklearn import svm
 import pandas as pd
 import tikzplotlib
+from rich import print
+
+# just relevant for svm visualization
 np.random.seed(41)
 
 
+df_funds = pd.read_csv(full_path + "data/funds_data_raw.csv", index_col=0)
+df_funds_processed = pd.read_csv(full_path + "data/funds_data_processed.csv", index_col=0)
+df_predictions = pd.read_csv(full_path + "data/funds_predictions_with_costs.csv", index_col=0)
 
-df_predictions = pd.read_csv(full_path + "data/funds_predictions.csv", index_col=0)
 
-# only one at a time
+# Select which Visualization should be produced and outputted
 support_vector_visualization = False
 time_series_data = False
+time_series_results = False
 trading_activity = True
+
+# "SPY", "QQQ", "IWM", "VB", "IWC", "FDM"
+trading_ticker = "FDM"
+
+#"random_forest", "svm", "neural_network"
+trading_model = "random_forest"
 
 
 if support_vector_visualization:
-    #plt.switch_backend('pgf')
-
     # Generate random data
     num_points = 10
     x_1 = np.random.normal(1, 1, num_points)
@@ -54,7 +64,6 @@ if support_vector_visualization:
     yy_up = yy - np.sqrt(1 + a ** 2) * margin
 
     # Plot the data points and the separating hyperplane
-    #plt.figure(figsize=(10, 8))
     fig, ax = plt.subplots(figsize=(10, 8))
 
     # Plot data points
@@ -68,9 +77,6 @@ if support_vector_visualization:
     ax.plot(xx, yy_down, 'k--', label='Margin')
     ax.plot(xx, yy_up, 'k--')
 
-    # Highlight the support vectors
-    #plt.scatter(clf.support_vectors_[:, 0], clf.support_vectors_[:, 1],
-             #   s=100, facecolors='none', edgecolors='k', label='Support vectors')
 
     ax.set_xlabel("Input Feature 1")
     ax.set_ylabel("Input Feature 1")
@@ -79,52 +85,123 @@ if support_vector_visualization:
     ax.legend()
     ax.grid(True)
 
-
+    # save as tex file (can be inputted in latex)
     tikzplotlib.save(full_path + "output/svm_visualization.tex")
     plt.show()
 
 
 if time_series_data:
-    # Load the data from CSV
-    funds_return = pd.read_csv(full_path + "data/funds_data_raw.csv", index_col=0)
-    funds_return.index = pd.to_datetime(funds_return.index).copy()
+
+    # Change index to datetime
+    df_funds.index = pd.to_datetime(df_funds.index).copy()
 
     # Extract unique tickers
-    tickers = list(funds_return.Ticker.unique())
+    tickers = list(df_funds.Ticker.unique())
 
     # Create a figure and axis
     fig, ax = plt.subplots(figsize=(10, 3))
 
     # Plot data for each ticker
     for ticker in tickers:
-        ticker_data = funds_return[funds_return['Ticker'] == ticker]
+        ticker_data = df_funds[df_funds['Ticker'] == ticker]
         ax.plot(ticker_data.index, ticker_data['Close'], label=ticker)
 
     # Define the list of years for x-tick labels
-    years = pd.date_range(start='2012-01-01', end='2022-01-01', freq='YS').year
+    years = pd.date_range(start='2012-01-01', end='2023-01-01', freq='YS').year
 
     # Set the x-ticks to the list of years and format them to display only the year
     ax.set_xticks(pd.to_datetime(years, format='%Y'))
-    ax.set_xticklabels(years, rotation=45)
+    ax.set_xticklabels(years, rotation=0)
 
     # Add labels and legend
-    ax.set_xlabel("Time")
+    ax.set_xlabel("Year")
     ax.set_ylabel("Value")
     ax.legend()
     ax.grid(True)
 
-    # Save the plot
+    # Save the plot as tex file
     tikzplotlib.save(full_path + "output/tickers_visualization.tex")
+
     plt.show()
 
 
-if trading_activity:
-    subs = df_predictions[(df_predictions.Ticker == "IWC") & (df_predictions.Model == "random_forest")]
-    print(subs.head())
+if time_series_results:
 
+    tickers = ["SPY", "QQQ", "IWM", "VB", "IWC", "FDM"]
+
+    for ticker in tickers:
+
+        holding_data = df_funds_processed
+        holding_data.index = pd.to_datetime(holding_data.index).copy()
+
+        funds_return = df_predictions
+        funds_return.index = pd.to_datetime(funds_return.Date).copy()
+
+
+        # Select the right period
+        holding_data = holding_data[holding_data.Type == "test"]
+
+        # Subset
+        holding_data = holding_data[holding_data.Ticker == ticker]
+        funds_return = funds_return[funds_return["Ticker"] == ticker]
+
+        # Transform the to return in the buy and hold
+        initial_price = holding_data["Close"].iloc[0]
+        holding_data["buy_hold_return"] = holding_data["Close"] / initial_price
+
+        # Extract unique tickers
+        models = list(funds_return.Model.unique())
+
+        # Create a figure and axis
+        fig, ax = plt.subplots(figsize=(10, 3))
+
+
+
+        colors = ["tab:orange", "tab:green", "tab:red"]
+        x = 0
+
+        ax.plot(holding_data.index, holding_data["buy_hold_return"], label="Buy&Hold", color="tab:blue")
+
+        # Plot data for each ticker
+        for model in models:
+
+            ticker_data = funds_return[funds_return['Model'] == model]
+            ax.plot(ticker_data.index, ticker_data['current_return'], label=model, color=colors[x])
+            #ax.plot(ticker_data.index, ticker_data["Close"], label=ticker)
+            x += 1
+        years = pd.date_range(start='2020-01-01', end='2023-01-01', freq='YS').year
+
+        # Set the x-ticks to the list of years and format them to display only the year
+        ax.set_xticks(pd.to_datetime(years, format='%Y'))
+        ax.set_xticklabels(years, rotation=0)
+
+        # Add labels and legend
+        plt.title(ticker)
+        ax.set_xlabel("Year")
+        ax.set_ylabel("Return")
+        ax.legend()#loc="upper left")
+        ax.grid(True)
+
+        # Save the plot
+        name = "output/ticker_" + ticker + "_return.tex"
+
+        tikzplotlib.save(full_path + name)
+
+        plt.show()
+
+
+if trading_activity:
+    pred_ticker = trading_ticker
+    pred_model = trading_model
+
+    # Create subset
+    subs = df_predictions[(df_predictions.Ticker == pred_ticker) & (df_predictions.Model == pred_model)]
     subs.index = pd.to_datetime(subs.Date).copy()
-    plt.figure(figsize=(14, 7))
-    plt.plot(subs.index, subs['Open'], label='Close Price', color='skyblue')
+
+    plt.figure(figsize=(10, 3))
+    years = [2020, 2021, 2022, 2023]
+
+    plt.plot(subs.index, subs['Open'], label='Opening Price', color='skyblue')
     plt.scatter(subs[subs['Adjusted_Signal'] == "SELL"].index, subs[subs['Adjusted_Signal'] == "SELL"]['Open'],
                 label='Sell Signal', color='red', marker='^')
     plt.scatter(subs[subs['Adjusted_Signal'] == "BUY"].index, subs[subs['Adjusted_Signal'] == "BUY"]['Open'],
@@ -154,15 +231,28 @@ if trading_activity:
     else:
         plt.axvspan(start_date, subs.index[-1], color='red', alpha=0.1)
 
-    plt.title('Stock Market Predictions with Buy Signals')
-    plt.xlabel('Date')
-    plt.ylabel('Close Price')
+    #plt.title(f'Stock Market Predictions with Buy Signals, {pred_ticker, pred_model}')
+    plt.xlabel('Year')
+    plt.ylabel('Value')
     plt.legend()
     plt.grid(True)
-    plt.xticks(rotation=45)
+    #plt.xticks(years, rotation=45)
+
+    plt.xticks(rotation=0)
+    plt.xticks(pd.to_datetime(years, format='%Y').to_pydatetime(), years)
     plt.tight_layout()
 
+
+    file_name = full_path + "output/trading_" + trading_ticker + "_" + trading_model + ".tex"
+    print(file_name)
+
+    # Safe the plot as tex file
+    tikzplotlib.save(file_name)
+
     plt.show()
+
+
+
 
 
 

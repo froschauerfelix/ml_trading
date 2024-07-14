@@ -10,7 +10,7 @@ import pandas as pd
 class MLP(nn.Module):
     def __init__(self, input_dim, output_dim, hidden_dim, num_layers):
         super().__init__()
-        self.activation = nn.SiLU() # hyperparameter
+        self.activation = nn.SiLU()
         self.fcs = []
 
         self.input_dim = input_dim
@@ -82,10 +82,12 @@ def mcnemar_test(df_predictions, model_1, model_2, ticker):
 
     table = [[0, n_1_0], [n_0_1, 0]]
 
-    result = mcnemar(table, exact=True)
+    result = mcnemar(table, exact=False)
 
-    print(n_0_1)
-    print(n_1_0)
+
+    print(f"n_0_1: {n_0_1}")
+    print(f"n_1_0: {n_1_0}")
+
     results.append({
         'Ticker': ticker,
         'Model1': pred_model_1,
@@ -97,6 +99,6 @@ def mcnemar_test(df_predictions, model_1, model_2, ticker):
     })
 
     #return pd.DataFrame(results)
-    return result.pvalue
+    return result.statistic
 
 

@@ -18,6 +18,13 @@ import itertools
 
 import torch
 from torch import nn
+import random
+
+seed = 1
+random.seed(seed)
+np.random.seed(seed)
+torch.manual_seed(seed)
+
 
 
 # Select what models to train (config.py)
@@ -317,4 +324,4 @@ for ticker in tickers:
 
 print(df_hyperparameter)
 
-df_hyperparameter.to_csv(full_path + "data/funds_hyperparameter_all.csv", encoding="utf-8", index=True)
+df_hyperparameter.to_csv(full_path + "data/funds_hyperparameter.csv", encoding="utf-8", index=True)
